@@ -114,16 +114,7 @@ async def odstrani_role(discord_user: discord.Member):
     professional = server.get_role(professional_role)
     nepreverjeni = server.get_role(nepreverjeni_role)
 
-    await discord_user.remove_roles(member)
-    await discord_user.remove_roles(guild_member)
-    await discord_user.remove_roles(vip)
-    await discord_user.remove_roles(vipp)
-    await discord_user.remove_roles(mvp)
-    await discord_user.remove_roles(mvpp)
-    await discord_user.remove_roles(mvppp)
-    await discord_user.remove_roles(veteran)
-    await discord_user.remove_roles(professional)
-    await discord_user.remove_roles(nepreverjeni)
+    await discord_user.remove_roles(member, guild_member, vip, vipp, mvp, mvpp, mvppp, veteran, professional, nepreverjeni)
 
 
 async def dodaj_nepreverjeni(discord_user: discord.Member):
