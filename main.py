@@ -1,3 +1,4 @@
+import asyncio
 import json
 import math
 import os
@@ -309,12 +310,11 @@ async def posodobi(ctx: discord.ApplicationContext):
     await ctx.interaction.edit_original_response(content="Uspešno posodobil uporabnikov profil.")
 
 
-@bot.slash_command(guild_ids=guilds)
-@commands.has_permissions(administrator=True)
-async def migriraj_racune(ctx: discord.ApplicationContext):
+async def migriraj(ctx: discord.ApplicationContext):
     await ctx.respond("Začenjam veliko migracijo računov ...")
 
     server = bot.get_guild(hypixel_slovenija_server)
+    c = server.get_channel(admin_notification_channel)
 
     with db_session:
         try:
@@ -322,24 +322,24 @@ async def migriraj_racune(ctx: discord.ApplicationContext):
                 try:
                     s = select(p for p in User if p.discord_id == str(discord_user.id))[:]
                     if len(s) > 0:
-                        await ctx.respond(
-                            f"Uporabnik {discord_user.name} je bil preskočen zaradi tega, ker je že vnesen v sistem.")
+                        await c.send(
+                            f"Uporabnik <@{discord_user.id}> je bil preskočen zaradi tega, ker je že vnesen v sistem.")
                         continue
                 except Exception as e:
                     print(f"Exception: {e}")
 
                 member = discord_user.get_role(member_role)
                 if member is None:
-                    await ctx.respond(
-                        f"Uporabnik {discord_user.name} je bil preskočen zaradi nepreverjenosti na prejšnjem sistemu.")
+                    await c.send(
+                        f"Uporabnik <@{discord_user.id}> je bil preskočen zaradi nepreverjenosti na prejšnjem sistemu.")
                     continue
 
                 try:
                     nick = discord_user.nick.split(" ")
                     ime = nick[0]
                 except Exception as e:
-                    await ctx.respond(
-                        f"Uporabnik {discord_user.name} je bil preskočen zaradi neveljavne sestave vzdevka ({e}).")
+                    await c.send(
+                        f"Uporabnik <@{discord_user.id}> je bil preskočen zaradi neveljavne sestave vzdevka ({e}).")
                     continue
 
                 db_user = User(minecraft_id="", minecraft_name="", discord_id=str(discord_user.id), veteran=False,
@@ -348,34 +348,41 @@ async def migriraj_racune(ctx: discord.ApplicationContext):
                 try:
                     await odstrani_role(discord_user)
                 except Exception as e:
-                    await ctx.respond(
-                        f"Uporabnik {discord_user.name} je bil preskočen zaradi težave z odstranjevanjem rol ({e}).")
+                    await c.send(
+                        f"Uporabnik <@{discord_user.id}> je bil preskočen zaradi težave z odstranjevanjem rol ({e}).")
                     db_user.delete()
                     continue
 
                 try:
                     await ime_v_uuid(ime, ctx, db_user)
                 except Exception as e:
-                    await ctx.respond(
-                        f"Uporabnik {discord_user.name} je bil preskočen zaradi težave s pretvarjanjem imena v UUID ({e}).")
+                    await c.send(
+                        f"Uporabnik <@{discord_user.id}> je bil preskočen zaradi težave s pretvarjanjem imena v UUID ({e}).")
                     db_user.delete()
                     continue
 
                 try:
                     await zahtevek(ctx, db_user, discord_user)
                 except Exception as e:
-                    await ctx.respond(
-                        f"Uporabnik {discord_user.name} je bil preskočen generične težave v funkciji zahtevek ({e}).")
+                    await c.send(
+                        f"Uporabnik <@{discord_user.id}> je bil preskočen generične težave v funkciji zahtevek ({e}).")
                     db_user.delete()
                     continue
 
-                await ctx.respond(f"Uporabnik {discord_user.name} je bil uspešno migriran na nov sistem.")
+                await c.send(f"Uporabnik <@{discord_user.id}> je bil uspešno migriran na nov sistem.")
 
                 commit()
         except Exception as e:
             print(f"Discord fail: {e}")
+            return
 
-    await ctx.respond("Migracija računov končana.")
+    await c.send("Migracija računov končana.")
+
+
+@bot.slash_command(guild_ids=guilds)
+@commands.has_permissions(administrator=True)
+async def migriraj_racune(ctx: discord.ApplicationContext):
+    asyncio.create_task(migriraj(ctx))
 
 
 bot.run(discord_token)
