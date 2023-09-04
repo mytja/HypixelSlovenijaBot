@@ -1,3 +1,4 @@
+import json
 import math
 import os
 
@@ -12,23 +13,27 @@ intents.members = True
 bot = discord.Bot(intents=intents)
 db = Database()
 
-hypixel_slovenija_server = 911181474991050804
+with open("config.json", "r") as f:
+    config = json.loads(f.read())
+
+hypixel_slovenija_server = config["discord_server_id"]
 guilds = [hypixel_slovenija_server]
 
 hypixel_api_key = os.environ["HYPIXEL_API"]
 discord_token = os.environ["BOT_TOKEN"]
-hypixel_slovenija_guild_id = "5ff980828ea8c9e004b008e2"
+hypixel_slovenija_guild_id = config["hypixel_guild_id"]
 
-member_role = 1146201313730891786
-guild_member_role = 1146201398174826546
-vip_role = 1146201347398570166
-vipp_role = 1146206523886932049
-mvp_role = 1146206572100468816
-mvpp_role = 1146206634645913663
-mvppp_role = 1146201369745821696
-veteran_role = 1146217178769653811
-professional_role = 1146217210101108806
-admin_notification_channel = 1146219224952488136
+member_role = config["member_role"]
+guild_member_role = config["guild_member_role"]
+vip_role = config["vip_role"]
+vipp_role = config["vipp_role"]
+mvp_role = config["mvp_role"]
+mvpp_role = config["mvpp_role"]
+mvppp_role = config["mvppp_role"]
+veteran_role = config["veteran_role"]
+professional_role = config["professional_role"]
+nepreverjeni_role = config["nepreverjeni_role"]
+admin_notification_channel = config["admin_notification_channel"]
 
 
 class User(db.Entity):
@@ -107,6 +112,7 @@ async def odstrani_role(discord_user: discord.Member):
     mvppp = server.get_role(mvppp_role)
     veteran = server.get_role(veteran_role)
     professional = server.get_role(professional_role)
+    nepreverjeni = server.get_role(nepreverjeni_role)
 
     await discord_user.remove_roles(member)
     await discord_user.remove_roles(guild_member)
@@ -117,6 +123,13 @@ async def odstrani_role(discord_user: discord.Member):
     await discord_user.remove_roles(mvppp)
     await discord_user.remove_roles(veteran)
     await discord_user.remove_roles(professional)
+    await discord_user.remove_roles(nepreverjeni)
+
+
+async def dodaj_nepreverjeni(discord_user: discord.Member):
+    server = bot.get_guild(hypixel_slovenija_server)
+    nepreverjeni = server.get_role(nepreverjeni_role)
+    await discord_user.add_roles(nepreverjeni)
 
 
 async def nastavi_nick(s: User, stats, discord_user: discord.Member) -> int:
@@ -138,6 +151,11 @@ async def nastavi_guild_role(guild, s: User, discord_user: discord.Member):
     server = bot.get_guild(hypixel_slovenija_server)
     guild_member = server.get_role(guild_member_role)
     c = server.get_channel(admin_notification_channel)
+
+    if guild["_id"] != hypixel_slovenija_guild_id:
+        s.professional = False
+        s.veteran = False
+        return
 
     for m in guild["members"]:
         if m["uuid"] != s.minecraft_id:
@@ -263,8 +281,13 @@ async def preveri(
 
         await odstrani_role(discord_user)
 
-        await ime_v_uuid(ime, ctx, db_user)
-        await zahtevek(ctx, db_user, discord_user)
+        try:
+            await ime_v_uuid(ime, ctx, db_user)
+            await zahtevek(ctx, db_user, discord_user)
+        except Exception as e:
+            await ctx.interaction.edit_original_response(content=f"Težava pri preverjanju uporabnika: {e}")
+            await odstrani_role(discord_user)
+            await dodaj_nepreverjeni(discord_user)
 
     await ctx.interaction.edit_original_response(content="Uspešno dodal uporabnika.")
 
@@ -285,6 +308,7 @@ async def posodobi(ctx: discord.ApplicationContext):
             await ctx.interaction.edit_original_response(
                 content=f"Ne najdem uporabnika v podatkovni bazi ({e}). Odpreverjam uporabnika ...")
             await odstrani_role(discord_user)
+            await dodaj_nepreverjeni(discord_user)
             await c.send(content=f"Uporabnik {ctx.user.name} je bil odpreverjen.")
             return
 
