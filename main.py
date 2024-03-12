@@ -128,7 +128,9 @@ async def nastavi_nick(s: User, stats, discord_user: discord.Member) -> int:
     server = bot.get_guild(hypixel_slovenija_server)
     member = server.get_role(member_role)
 
-    network_experience = stats["player"]["networkExp"]
+    network_experience = stats["player"].get("networkExp")
+    if network_experience is None:
+        network_experience = 0
     network_level = int((math.sqrt((2 * network_experience) + 30625) / 50) - 2.5)
 
     # print(network_level)
