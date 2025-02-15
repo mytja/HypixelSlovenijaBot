@@ -36,6 +36,8 @@ professional_role = config["professional_role"]
 nepreverjeni_role = config["nepreverjeni_role"]
 admin_notification_channel = config["admin_notification_channel"]
 
+server: discord.Guild | None = None
+c: discord.TextChannel | None = None
 
 class User(db.Entity):
     minecraft_id = Optional(str)
@@ -74,7 +76,6 @@ async def hypixel_guild(s: User):
 
 
 async def nastavi_rank(j, discord_user: discord.Member):
-    server = bot.get_guild(hypixel_slovenija_server)
     vip = server.get_role(vip_role)
     vipp = server.get_role(vipp_role)
     mvp = server.get_role(mvp_role)
@@ -103,7 +104,6 @@ async def nastavi_rank(j, discord_user: discord.Member):
 
 
 async def odstrani_role(discord_user: discord.Member):
-    server = bot.get_guild(hypixel_slovenija_server)
     member = server.get_role(member_role)
     guild_member = server.get_role(guild_member_role)
     vip = server.get_role(vip_role)
@@ -119,16 +119,16 @@ async def odstrani_role(discord_user: discord.Member):
 
 
 async def dodaj_nepreverjeni(discord_user: discord.Member):
-    server = bot.get_guild(hypixel_slovenija_server)
     nepreverjeni = server.get_role(nepreverjeni_role)
     await discord_user.add_roles(nepreverjeni)
 
 
 async def nastavi_nick(s: User, stats, discord_user: discord.Member) -> int:
-    server = bot.get_guild(hypixel_slovenija_server)
     member = server.get_role(member_role)
 
-    network_experience = stats["player"].get("networkExp")
+    network_experience = 0
+    if stats["player"] is not None:
+        network_experience = stats["player"].get("networkExp")
     if network_experience is None:
         network_experience = 0
     network_level = int((math.sqrt((2 * network_experience) + 30625) / 50) - 2.5)
@@ -142,9 +142,7 @@ async def nastavi_nick(s: User, stats, discord_user: discord.Member) -> int:
 
 
 async def nastavi_guild_role(guild, s: User, discord_user: discord.Member):
-    server = bot.get_guild(hypixel_slovenija_server)
     guild_member = server.get_role(guild_member_role)
-    c = server.get_channel(admin_notification_channel)
 
     if guild["_id"] != hypixel_slovenija_guild_id:
         s.professional = False
@@ -182,7 +180,6 @@ async def nastavi_guild_role(guild, s: User, discord_user: discord.Member):
 
 
 async def nastavi_veteran_professional(s: User, discord_user: discord.Member):
-    server = bot.get_guild(hypixel_slovenija_server)
     veteran = server.get_role(veteran_role)
     professional = server.get_role(professional_role)
 
@@ -193,9 +190,6 @@ async def nastavi_veteran_professional(s: User, discord_user: discord.Member):
 
 
 async def preveri_professional(s: User, player, network_level: int):
-    server = bot.get_guild(hypixel_slovenija_server)
-    c = server.get_channel(admin_notification_channel)
-
     if s.veteran and not s.professional:
         stats = player["stats"]
         achievements = player["achievements"]
@@ -214,14 +208,13 @@ async def preveri_professional(s: User, player, network_level: int):
                         f"rolo tudi na Hypixlu, da bo odražalo trenutno stanje.")
 
 
-async def ime_v_uuid(ime: str, ctx: discord.ApplicationContext, db_user: User):
+async def ime_v_uuid(ime: str, db_user: User):
     async with httpx.AsyncClient() as client:
         r = await client.get(f"https://api.mojang.com/users/profiles/minecraft/{ime}")
+        if r.status_code == 404:
+            raise Exception(f"Tak uporabnik ni zabeležen pri Mojangu! Uporabniško ime je prosto/nezasedeno!")
         if r.status_code != 200:
-            await ctx.interaction.edit_original_response(
-                content=f"Napaka ({r.text} s statusno kodo {r.status_code}). Ne najdem uporabnika s takim "
-                        f"uporabniškim imenom.")
-            return
+            raise Exception(f"Ime v UUID failure: {r.json()} {r.status_code}")
         j = r.json()
         uid = j["id"]
         ime = j["name"]
@@ -232,7 +225,8 @@ async def ime_v_uuid(ime: str, ctx: discord.ApplicationContext, db_user: User):
 
 async def zahtevek(ctx: discord.ApplicationContext, db_user: User, discord_user: discord.Member):
     j2 = await hypixel_statistika(db_user)
-    await nastavi_rank(j2, discord_user)
+    if j2["player"] is not None:
+        await nastavi_rank(j2, discord_user)
     network_level = await nastavi_nick(db_user, j2, discord_user)
 
     j3 = await hypixel_guild(db_user)
@@ -248,10 +242,18 @@ async def zahtevek(ctx: discord.ApplicationContext, db_user: User, discord_user:
 
 @bot.event
 async def on_ready():
+    global server
+    global c
     print(f"We have logged in as {bot.user}. Initializing sqlite3 database.")
     db.bind(provider='sqlite', filename='database.sqlite', create_db=True)
     db.generate_mapping(create_tables=True)
     print("Done initializing sqlite3 database.")
+    print("Fetching members...")
+    server = bot.get_guild(hypixel_slovenija_server)
+    c = server.get_channel(admin_notification_channel)
+    async for member in server.fetch_members():
+        print(member.name)
+    print("Fetched members!")
 
 
 @bot.slash_command(guild_ids=guilds)
@@ -276,12 +278,16 @@ async def preveri(
         await odstrani_role(discord_user)
 
         try:
-            await ime_v_uuid(ime, ctx, db_user)
+            await ctx.interaction.edit_original_response(content="Pretvarjam ime v UUID ...")
+            await ime_v_uuid(ime, db_user)
+            await ctx.interaction.edit_original_response(content="Pridobivam podatke o uporabniku od Hypixla ...")
             await zahtevek(ctx, db_user, discord_user)
         except Exception as e:
             await ctx.interaction.edit_original_response(content=f"Težava pri preverjanju uporabnika: {e}")
             await odstrani_role(discord_user)
             await dodaj_nepreverjeni(discord_user)
+            rollback() # Rollbackamo transaction, da ne commitamo db_user
+            return
 
     await ctx.interaction.edit_original_response(content="Uspešno dodal uporabnika.")
 
@@ -289,9 +295,6 @@ async def preveri(
 @bot.slash_command(guild_ids=guilds)
 async def posodobi(ctx: discord.ApplicationContext):
     await ctx.respond("Posodabljam uporabnika ...")
-
-    server = bot.get_guild(hypixel_slovenija_server)
-    c = server.get_channel(admin_notification_channel)
 
     with db_session:
         discord_user = ctx.user
@@ -311,12 +314,45 @@ async def posodobi(ctx: discord.ApplicationContext):
 
     await ctx.interaction.edit_original_response(content="Uspešno posodobil uporabnikov profil.")
 
+@bot.slash_command(guild_ids=guilds)
+async def posodobi_vse(ctx: discord.ApplicationContext):
+    await ctx.respond("Posodabljam vse uporabnike ...")
+
+    with db_session:
+        for db_user in User.select():
+            discord_id = db_user.discord_id
+            if discord_id is None or discord_id == "":
+                db_user.delete()
+            member = server.get_member(int(discord_id))
+            if member is None:
+                print(f"Cache miss on user {discord_id}")
+                member = await server.fetch_member(discord_id)
+            if member is None:
+                await c.send(f"Brišem uporabnika <@{discord_id}>, ker ga ne najdem v strežniku.")
+                db_user.delete()
+            if db_user.minecraft_id == "":
+                await c.send(f"Odpreverjam uporabnika <@{discord_id}>, ker nisem našel Minecraft identifikatorja.")
+                await odstrani_role(member)
+                await dodaj_nepreverjeni(member)
+                db_user.delete()
+            try:
+                await zamenjaj_ime(db_user)
+            except Exception as e:
+                await c.send(
+                    f"Uporabnik <@{discord_id}> je bil preskočen generične težave v funkciji zamenjaj_ime ({e}).")
+                continue
+            try:
+                await zahtevek(ctx, db_user, member)
+            except Exception as e:
+                await c.send(
+                    f"Uporabnik <@{discord_id}> je bil preskočen generične težave v funkciji zahtevek ({e}).")
+                continue
+
+    await ctx.interaction.edit_original_response(content="Uspešno posodobil uporabniške profile.")
+
 
 async def migriraj(ctx: discord.ApplicationContext):
     await ctx.respond("Začenjam veliko migracijo računov ...")
-
-    server = bot.get_guild(hypixel_slovenija_server)
-    c = server.get_channel(admin_notification_channel)
 
     with db_session:
         try:
@@ -356,7 +392,7 @@ async def migriraj(ctx: discord.ApplicationContext):
                     continue
 
                 try:
-                    await ime_v_uuid(ime, ctx, db_user)
+                    await ime_v_uuid(ime, db_user)
                 except Exception as e:
                     await c.send(
                         f"Uporabnik <@{discord_user.id}> je bil preskočen zaradi težave s pretvarjanjem imena v UUID ({e}).")
@@ -385,6 +421,5 @@ async def migriraj(ctx: discord.ApplicationContext):
 @commands.has_permissions(administrator=True)
 async def migriraj_racune(ctx: discord.ApplicationContext):
     asyncio.create_task(migriraj(ctx))
-
 
 bot.run(discord_token)
