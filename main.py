@@ -224,7 +224,7 @@ async def ime_v_uuid(ime: str, db_user: User):
         db_user.minecraft_name = ime
 
 
-async def zahtevek(ctx: discord.ApplicationContext, db_user: User, discord_user: discord.Member):
+async def zahtevek(ctx: discord.ApplicationContext, db_user: User, discord_user: discord.Member, mass_editing: bool = False):
     j2 = await hypixel_statistika(db_user)
     if j2["player"] is not None:
         await nastavi_rank(j2, discord_user)
@@ -233,7 +233,8 @@ async def zahtevek(ctx: discord.ApplicationContext, db_user: User, discord_user:
     j3 = await hypixel_guild(db_user)
     guild = j3.get("guild")
     if guild is None:
-        await ctx.interaction.edit_original_response(content="Uspešno preveril uporabnika.")
+        if not mass_editing:
+            await ctx.interaction.edit_original_response(content="Uspešno preveril uporabnika.")
         return
 
     await nastavi_guild_role(guild, db_user, discord_user)
@@ -354,7 +355,7 @@ async def posodobi_vse(ctx: discord.ApplicationContext):
                     f"Uporabnik <@{discord_id}> je bil preskočen generične težave v funkciji zamenjaj_ime ({e}).")
                 continue
             try:
-                await zahtevek(ctx, db_user, member)
+                await zahtevek(ctx, db_user, member, mass_editing=True)
             except Exception as e:
                 await c.send(
                     f"Uporabnik <@{discord_id}> je bil preskočen generične težave v funkciji zahtevek ({e}).")
