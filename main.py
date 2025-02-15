@@ -315,6 +315,7 @@ async def posodobi(ctx: discord.ApplicationContext):
     await ctx.interaction.edit_original_response(content="Uspešno posodobil uporabnikov profil.")
 
 @bot.slash_command(guild_ids=guilds)
+@commands.has_any_role("Officer", "Master", "Guild Master")
 async def posodobi_vse(ctx: discord.ApplicationContext):
     await ctx.respond("Posodabljam vse uporabnike ...")
 
