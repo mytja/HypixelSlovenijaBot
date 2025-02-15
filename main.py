@@ -35,6 +35,7 @@ veteran_role = config["veteran_role"]
 professional_role = config["professional_role"]
 nepreverjeni_role = config["nepreverjeni_role"]
 admin_notification_channel = config["admin_notification_channel"]
+superadmins = ["577185594011156490"]
 
 server: discord.Guild | None = None
 c: discord.TextChannel | None = None
@@ -324,18 +325,28 @@ async def posodobi_vse(ctx: discord.ApplicationContext):
             discord_id = db_user.discord_id
             if discord_id is None or discord_id == "":
                 db_user.delete()
+            if discord_id in superadmins:
+                await c.send(f"Preskakujem uporabnika <@{discord_id}>, ker je registriran kot superadmin.")
+                continue
             member = server.get_member(int(discord_id))
             if member is None:
                 print(f"Cache miss on user {discord_id}")
-                member = await server.fetch_member(discord_id)
+                try:
+                    member = await server.fetch_member(discord_id)
+                except Exception as e:
+                    await c.send(f"Brišem uporabnika <@{discord_id}>, ker ga ne najdem v strežniku. Exception: {e}")
+                    db_user.delete()
+                    continue
             if member is None:
                 await c.send(f"Brišem uporabnika <@{discord_id}>, ker ga ne najdem v strežniku.")
                 db_user.delete()
+                continue
             if db_user.minecraft_id == "":
                 await c.send(f"Odpreverjam uporabnika <@{discord_id}>, ker nisem našel Minecraft identifikatorja.")
                 await odstrani_role(member)
                 await dodaj_nepreverjeni(member)
                 db_user.delete()
+                continue
             try:
                 await zamenjaj_ime(db_user)
             except Exception as e:
