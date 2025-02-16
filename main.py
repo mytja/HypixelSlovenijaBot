@@ -192,8 +192,8 @@ async def nastavi_veteran_professional(s: User, discord_user: discord.Member):
 
 async def preveri_professional(s: User, player, network_level: int):
     if s.veteran and not s.professional:
-        stats = player["stats"]
-        achievements = player["achievements"]
+        stats = player["player"]["stats"]
+        achievements = player["player"]["achievements"]
         assign_professional = False
         if stats.get("Duels") is not None and stats["Duels"].get("wins") is not None:
             assign_professional = assign_professional or int(stats["Duels"].get("wins")) >= 1000
